@@ -258,11 +258,11 @@ fn fetch_luks_key<E: CommandExecutor>(
         })
 }
 
-/// Clevis PIN for confidential cluster
+/// Clevis PIN for Trustee
 #[derive(Parser)]
 #[command(name = "clevis-pin-trustee")]
 #[command(version = "0.1.0")]
-#[command(about = "Clevis PIN for confidential clusters")]
+#[command(about = "Clevis PIN for Trustee")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
