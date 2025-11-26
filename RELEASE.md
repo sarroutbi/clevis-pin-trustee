@@ -101,7 +101,7 @@ Once you push the tag, GitHub Actions automatically starts the release workflow.
 
 #### Where to Monitor
 
-1. Go to your repository on GitHub: https://github.com/sarroutbi/clevis-pin-trustee
+1. Go to your repository on GitHub: https://github.com/latchset/clevis-pin-trustee
 2. Click the "Actions" tab
 3. Look for the "Release" workflow run for your tag
 
@@ -155,7 +155,7 @@ Actions → Release → [your tag] → [click on any job to see logs]
 
 **Success indicators**:
 - ✅ Green checkmarks on all jobs
-- GitHub Release created at: `https://github.com/sarroutbi/clevis-pin-trustee/releases/tag/v0.2.0`
+- GitHub Release created at: `https://github.com/latchset/clevis-pin-trustee/releases/tag/v0.2.0`
 
 **Failure indicators**:
 - ❌ Red X on any job
@@ -167,7 +167,7 @@ After the workflow completes successfully:
 
 1. **Check the GitHub Release page**:
    ```
-   https://github.com/sarroutbi/clevis-pin-trustee/releases/tag/v0.2.0
+   https://github.com/latchset/clevis-pin-trustee/releases/tag/v0.2.0
    ```
 
 2. **Verify artifacts are present**:
@@ -178,7 +178,7 @@ After the workflow completes successfully:
 3. **Test a release artifact**:
    ```bash
    # Download and extract
-   wget https://github.com/sarroutbi/clevis-pin-trustee/releases/download/v0.2.0/clevis-pin-trustee-0.2.0-x86_64-unknown-linux-gnu.tar.gz
+   wget https://github.com/latchset/clevis-pin-trustee/releases/download/v0.2.0/clevis-pin-trustee-0.2.0-x86_64-unknown-linux-gnu.tar.gz
    tar xzf clevis-pin-trustee-0.2.0-x86_64-unknown-linux-gnu.tar.gz
    cd clevis-pin-trustee-0.2.0
 
@@ -502,7 +502,7 @@ sha256sum clevis-pin-trustee-0.2.0-x86_64-unknown-linux-gnu.tar.gz > \
 
 ### Step 3: Create GitHub Release Manually
 
-1. Go to: https://github.com/sarroutbi/clevis-pin-trustee/releases/new
+1. Go to: https://github.com/latchset/clevis-pin-trustee/releases/new
 2. Select the tag (or create it): `v0.2.0`
 3. Fill in:
    - **Release title**: `v0.2.0`
