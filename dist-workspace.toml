@@ -1,0 +1,21 @@
+# SPDX-FileCopyrightText: Sergio Arroutbi <sarroutb@redhat.com>
+#
+# SPDX-License-Identifier: MIT
+
+[workspace]
+members = ["cargo:."]
+
+# Config for 'dist'
+[dist]
+# The preferred dist version to use in CI (Cargo.toml SemVer syntax)
+cargo-dist-version = "0.30.2"
+# CI backends to support
+ci = "github"
+# The installers to generate for each app
+installers = []
+# Target platforms to build apps for (Rust target-triple syntax)
+# Focused on Linux platforms where Clevis/LUKS are used
+targets = ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
+# Path to README (for release notes)
+# Include wrapper scripts in the release
+include = ["clevis-encrypt-trustee", "clevis-decrypt-trustee"]
