@@ -19,3 +19,5 @@ targets = ["aarch64-unknown-linux-gnu", "x86_64-unknown-linux-gnu"]
 # Path to README (for release notes)
 # Include wrapper scripts in the release
 include = ["clevis-encrypt-trustee", "clevis-decrypt-trustee"]
+# Allow manual edits to generated CI workflow files
+allow-dirty = ["ci"]

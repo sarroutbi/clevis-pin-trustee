@@ -14,3 +14,11 @@
 # Temporary files
 *.tmp
 *.temp
+
+# Vendored dependencies for RPM builds
+/vendor/
+/.cargo/config.toml
+*-vendor.tar.gz
+
+# Release artifacts
+/release-artifacts/
