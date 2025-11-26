@@ -11,14 +11,20 @@ use josekit::jwk::Jwk;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
+use std::path::Path;
 use std::process::Command as StdCommand;
-use std::thread;
 use std::time::Duration;
+use std::{fs, thread};
 
 /// Trait for executing commands to fetch LUKS keys
 trait CommandExecutor {
-    fn try_fetch_luks_key(&self, url: &str, path: &str, initdata: Option<String>)
-    -> Result<String>;
+    fn try_fetch_luks_key(
+        &self,
+        url: &str,
+        path: &str,
+        cert: &str,
+        initdata: Option<String>,
+    ) -> Result<String>;
 }
 
 /// Real implementation that calls the trustee-attester binary
@@ -29,9 +35,21 @@ impl CommandExecutor for RealCommandExecutor {
         &self,
         url: &str,
         path: &str,
+        cert: &str,
         initdata: Option<String>,
     ) -> Result<String> {
         let mut command = StdCommand::new("trustee-attester");
+        if !cert.is_empty() {
+            // Create a unique filename based on the URL
+            let url_sanitized = url.replace("://", "_").replace("/", "_").replace(":", "_");
+            let cert_path = format!("/var/run/trustee/cert_{}.pem", url_sanitized);
+            let cert_path_obj = Path::new(&cert_path);
+            if let Some(parent) = cert_path_obj.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            fs::write(&cert_path, cert)?;
+            command.arg("--cert-file").arg(&cert_path);
+        }
         command
             .arg("--url")
             .arg(url)
@@ -77,6 +95,7 @@ impl CommandExecutor for MockCommandExecutor {
         &self,
         _url: &str,
         _path: &str,
+        _cert: &str,
         _initdata: Option<String>,
     ) -> Result<String> {
         match &self.response {
@@ -230,7 +249,8 @@ fn fetch_luks_key<E: CommandExecutor>(
 
             for (index, server) in servers.iter().enumerate() {
                 eprintln!("Trying URL {}/{}: {}", index + 1, servers.len(), server.url);
-                match executor.try_fetch_luks_key(&server.url, path, initdata.clone()) {
+                match executor.try_fetch_luks_key(&server.url, path, &server.cert, initdata.clone())
+                {
                     Ok(key) => {
                         eprintln!("Successfully fetched LUKS key from URL: {}", server.url);
                         return Some(Ok(key));
