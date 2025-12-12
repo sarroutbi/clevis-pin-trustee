@@ -16,6 +16,9 @@ use std::process::Command as StdCommand;
 use std::time::Duration;
 use std::{fs, thread};
 
+const DEFAULT_TRIES: u32 = 10;
+const DELAY: Duration = Duration::from_secs(5);
+
 /// Trait for executing commands to fetch LUKS keys
 trait CommandExecutor {
     fn try_fetch_luks_key(
@@ -111,15 +114,18 @@ struct ClevisHeader {
     servers: Vec<Server>,
     path: String,
     initdata: Option<String>,
+    #[serde(default)]
+    num_retries: Option<NumRetries>,
 }
 
 fn fetch_and_prepare_jwk<E: CommandExecutor>(
     servers: &[Server],
     path: &str,
     initdata: Option<String>,
+    num_retries: &NumRetries,
     executor: &E,
 ) -> Result<Jwk> {
-    let key = fetch_luks_key(servers, path, initdata, executor)?;
+    let key = fetch_luks_key(servers, path, initdata, num_retries, executor)?;
     let key = String::from_utf8(
         general_purpose::STANDARD
             .decode(&key)
@@ -160,7 +166,17 @@ fn encrypt(config: &str) -> Result<()> {
     io::stdin().read_to_end(&mut input)?;
 
     let executor = RealCommandExecutor;
-    let jwk = fetch_and_prepare_jwk(&config.servers, &config.path, initdata.clone(), &executor)?;
+    let num_retries = config
+        .num_retries
+        .as_ref()
+        .unwrap_or(&NumRetries::Finite(DEFAULT_TRIES));
+    let jwk = fetch_and_prepare_jwk(
+        &config.servers,
+        &config.path,
+        initdata.clone(),
+        num_retries,
+        &executor,
+    )?;
 
     eprintln!("{}", jwk);
     let encrypter = Dir
@@ -172,6 +188,7 @@ fn encrypt(config: &str) -> Result<()> {
         servers: config.servers.clone(),
         path: config.path,
         initdata,
+        num_retries: config.num_retries,
     };
 
     let mut hdr = josekit::jwe::JweHeader::new();
@@ -207,10 +224,15 @@ fn decrypt() -> Result<()> {
     eprintln!("Decrypt with header: {:?}", hdr_clevis);
 
     let executor = RealCommandExecutor;
+    let num_retries = hdr_clevis
+        .num_retries
+        .as_ref()
+        .unwrap_or(&NumRetries::Finite(DEFAULT_TRIES));
     let decrypter_jwk = fetch_and_prepare_jwk(
         &hdr_clevis.servers,
         &hdr_clevis.path,
         hdr_clevis.initdata,
+        num_retries,
         &executor,
     )?;
 
@@ -227,55 +249,83 @@ fn decrypt() -> Result<()> {
     Ok(())
 }
 
+fn try_fetch_from_servers<E: CommandExecutor>(
+    servers: &[Server],
+    path: &str,
+    initdata: &Option<String>,
+    executor: &E,
+) -> Option<String> {
+    for (index, server) in servers.iter().enumerate() {
+        eprintln!("Trying URL {}/{}: {}", index + 1, servers.len(), server.url);
+        match executor.try_fetch_luks_key(&server.url, path, &server.cert, initdata.clone()) {
+            Ok(key) => {
+                eprintln!("Successfully fetched LUKS key from URL: {}", server.url);
+                return Some(key);
+            }
+            Err(e) => {
+                eprintln!("Error with URL {}: {}", server.url, e);
+            }
+        }
+    }
+    None
+}
+
 fn fetch_luks_key<E: CommandExecutor>(
     servers: &[Server],
     path: &str,
     initdata: Option<String>,
+    num_retries: &NumRetries,
     executor: &E,
 ) -> Result<String> {
-    const MAX_ATTEMPTS: u32 = 3;
-    const DELAY: Duration = Duration::from_secs(5);
-
     if servers.is_empty() {
         return Err(anyhow!("No URLs provided"));
     }
 
-    (1..=MAX_ATTEMPTS)
-        .find_map(|attempt| {
-            eprintln!(
-                "Attempting to fetch LUKS key (attempt {}/{})",
-                attempt, MAX_ATTEMPTS
-            );
+    match num_retries {
+        NumRetries::Finite(max_attempts) => (1..=*max_attempts)
+            .find_map(|attempt| {
+                eprintln!(
+                    "Attempting to fetch LUKS key (attempt {}/{})",
+                    attempt, max_attempts
+                );
 
-            for (index, server) in servers.iter().enumerate() {
-                eprintln!("Trying URL {}/{}: {}", index + 1, servers.len(), server.url);
-                match executor.try_fetch_luks_key(&server.url, path, &server.cert, initdata.clone())
-                {
-                    Ok(key) => {
-                        eprintln!("Successfully fetched LUKS key from URL: {}", server.url);
-                        return Some(Ok(key));
-                    }
-                    Err(e) => {
-                        eprintln!("Error with URL {}: {}", server.url, e);
-                    }
+                if let Some(key) = try_fetch_from_servers(servers, path, &initdata, executor) {
+                    return Some(Ok(key));
                 }
-            }
 
-            if attempt < MAX_ATTEMPTS {
+                if attempt < *max_attempts {
+                    eprintln!(
+                        "All URLs failed for attempt {}. Retrying in {:?} seconds...",
+                        attempt, DELAY
+                    );
+                    thread::sleep(DELAY);
+                }
+                None
+            })
+            .unwrap_or_else(|| {
+                Err(anyhow!(
+                    "Failed to fetch the LUKS key from all URLs after {} attempts",
+                    max_attempts
+                ))
+            }),
+        NumRetries::Infinity => {
+            let mut attempt = 0;
+            loop {
+                attempt += 1;
+                eprintln!("Attempting to fetch LUKS key (attempt {})", attempt);
+
+                if let Some(key) = try_fetch_from_servers(servers, path, &initdata, executor) {
+                    return Ok(key);
+                }
+
                 eprintln!(
                     "All URLs failed for attempt {}. Retrying in {:?} seconds...",
                     attempt, DELAY
                 );
                 thread::sleep(DELAY);
             }
-            None
-        })
-        .unwrap_or_else(|| {
-            Err(anyhow!(
-                "Failed to fetch the LUKS key from all URLs after {} attempts",
-                MAX_ATTEMPTS
-            ))
-        })
+        }
+    }
 }
 
 /// Clevis PIN for Trustee
@@ -323,7 +373,8 @@ mod tests {
             cert: String::new(),
         }];
 
-        let result = fetch_luks_key(&servers, "/test/path", None, &mock);
+        let num_retries = NumRetries::Finite(3);
+        let result = fetch_luks_key(&servers, "/test/path", None, &num_retries, &mock);
 
         assert!(result.is_ok());
         assert_eq!(result.unwrap(), "test_luks_key_12345");
@@ -340,12 +391,56 @@ mod tests {
             cert: String::new(),
         }];
 
-        let result = fetch_luks_key(&servers, "/test/path", None, &mock);
+        let num_retries = NumRetries::Finite(3);
+        let result = fetch_luks_key(&servers, "/test/path", None, &num_retries, &mock);
 
         assert!(result.is_err());
         assert_eq!(
             result.unwrap_err().to_string(),
             "Failed to fetch the LUKS key from all URLs after 3 attempts"
         );
+    }
+
+    #[test]
+    fn test_fetch_luks_key_infinity_retries() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicBool, Ordering},
+        };
+        use std::time::Instant;
+
+        let mock = MockCommandExecutor {
+            response: Err(anyhow!("Failed to connect to server")),
+        };
+
+        let servers = vec![Server {
+            url: "http://server1.example.com".to_string(),
+            cert: String::new(),
+        }];
+
+        let num_retries = NumRetries::Infinity;
+
+        let returned = Arc::new(AtomicBool::new(false));
+        let returned_clone = Arc::clone(&returned);
+        let handle = std::thread::spawn(move || {
+            let _ = fetch_luks_key(&servers, "/test/path", None, &num_retries, &mock);
+            returned_clone.store(true, Ordering::SeqCst);
+        });
+        let start = Instant::now();
+        let timeout = Duration::from_secs(60);
+
+        while start.elapsed() < timeout {
+            thread::sleep(Duration::from_secs(1));
+            if returned.load(Ordering::SeqCst) {
+                panic!("fetch_luks_key returned before 1 minute with infinite retries");
+            }
+        }
+
+        assert!(
+            !returned.load(Ordering::SeqCst),
+            "fetch_luks_key should not have returned after 1 minute with infinite retries"
+        );
+
+        drop(handle);
     }
 }
