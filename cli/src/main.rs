@@ -42,7 +42,7 @@ impl CommandExecutor for RealCommandExecutor {
         if !cert.is_empty() {
             // Create a unique filename based on the URL
             let url_sanitized = url.replace("://", "_").replace("/", "_").replace(":", "_");
-            let cert_path = format!("/var/run/trustee/cert_{}.pem", url_sanitized);
+            let cert_path = format!("/run/trustee/cert_{}.pem", url_sanitized);
             let cert_path_obj = Path::new(&cert_path);
             if let Some(parent) = cert_path_obj.parent() {
                 fs::create_dir_all(parent)?;
