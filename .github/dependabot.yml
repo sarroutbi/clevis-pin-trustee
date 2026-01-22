@@ -22,3 +22,7 @@ updates:
       rust:
         patterns:
           - "*"
+    ignore:
+      - dependency-name: "josekit"
+        # for Fedora packaging
+        versions: [">=0.8"]
