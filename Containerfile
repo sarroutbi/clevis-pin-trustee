@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: CC0-1.0
 
-FROM ghcr.io/trusted-execution-clusters/buildroot:latest AS build
+FROM ghcr.io/trusted-execution-clusters/buildroot:fedora AS build
 
 COPY . /src
 WORKDIR /src
