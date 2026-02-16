@@ -89,12 +89,24 @@ pub struct Server {
     pub cert: String,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct AttestationKey {
+    pub registration: Registration,
+}
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Registration {
+    pub url: String,
+    pub cert: String,
+    pub uuid: String,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Config {
     pub servers: Vec<Server>,
     pub path: String,
     pub initdata: Option<String>,
     pub num_retries: Option<NumRetries>,
+    pub attestation_key: Option<AttestationKey>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,4 +121,10 @@ pub struct Initdata {
     pub version: String,
     pub algorithm: String,
     pub data: HashMap<String, String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegistrationPayload {
+    pub attestation_key: String,
+    pub uuid: String,
 }
