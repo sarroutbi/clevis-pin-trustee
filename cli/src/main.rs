@@ -745,4 +745,298 @@ mod tests {
 
         drop(handle);
     }
+
+    #[test]
+    fn test_attestation_key_handle_none() {
+        let generator = MockAttestationKeyGenerator {
+            response: Ok("mock_key".to_string()),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Ok(()),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            panic!("HTTP client should not be called when attestation_key is None");
+        };
+
+        let result =
+            attestation_key_handle_with_deps(&None, &generator, http_client_factory, &filesystem);
+
+        assert!(result.is_ok());
+        assert!(filesystem.written.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_attestation_key_handle_empty_registration_url() {
+        let generator = MockAttestationKeyGenerator {
+            response: Ok("mock_attestation_key".to_string()),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Ok(()),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            panic!("HTTP client should not be called when registration URL is empty");
+        };
+
+        let attestation_key = Some(AttestationKey {
+            registration: Registration {
+                url: String::new(),
+                cert: String::new(),
+                uuid: "test-uuid".to_string(),
+            },
+        });
+
+        let result = attestation_key_handle_with_deps(
+            &attestation_key,
+            &generator,
+            http_client_factory,
+            &filesystem,
+        );
+
+        assert!(result.is_ok());
+        assert!(filesystem.written.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_attestation_key_handle_successful_registration() {
+        let generator = MockAttestationKeyGenerator {
+            response: Ok("mock_attestation_key".to_string()),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Ok(()),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = move |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            Ok(Box::new(MockHttpClient {
+                responses: vec![Ok(200)],
+                call_count: std::cell::RefCell::new(0),
+            }))
+        };
+
+        let attestation_key = Some(AttestationKey {
+            registration: Registration {
+                url: "http://test.example.com/register".to_string(),
+                cert: String::new(),
+                uuid: "test-uuid-123".to_string(),
+            },
+        });
+
+        let result = attestation_key_handle_with_deps(
+            &attestation_key,
+            &generator,
+            http_client_factory,
+            &filesystem,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(filesystem.written.borrow().len(), 1);
+        assert_eq!(filesystem.written.borrow()[0], AK_REGISTERD);
+    }
+
+    #[test]
+    fn test_attestation_key_handle_registration_fails_with_retries() {
+        let generator = MockAttestationKeyGenerator {
+            response: Ok("mock_attestation_key".to_string()),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Ok(()),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = move |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            Ok(Box::new(MockHttpClient {
+                responses: vec![
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                    Ok(500),
+                ],
+                call_count: std::cell::RefCell::new(0),
+            }))
+        };
+
+        let attestation_key = Some(AttestationKey {
+            registration: Registration {
+                url: "http://test.example.com/register".to_string(),
+                cert: String::new(),
+                uuid: "test-uuid-123".to_string(),
+            },
+        });
+
+        let result = attestation_key_handle_with_deps(
+            &attestation_key,
+            &generator,
+            http_client_factory,
+            &filesystem,
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("failed with status: 500")
+        );
+        assert!(filesystem.written.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_attestation_key_handle_registration_succeeds_after_retries() {
+        let generator = MockAttestationKeyGenerator {
+            response: Ok("mock_attestation_key".to_string()),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Ok(()),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = move |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            Ok(Box::new(MockHttpClient {
+                responses: vec![Ok(500), Ok(500), Ok(200)],
+                call_count: std::cell::RefCell::new(0),
+            }))
+        };
+
+        let attestation_key = Some(AttestationKey {
+            registration: Registration {
+                url: "http://test.example.com/register".to_string(),
+                cert: String::new(),
+                uuid: "test-uuid-123".to_string(),
+            },
+        });
+
+        let result = attestation_key_handle_with_deps(
+            &attestation_key,
+            &generator,
+            http_client_factory,
+            &filesystem,
+        );
+
+        assert!(result.is_ok());
+        assert_eq!(filesystem.written.borrow().len(), 1);
+        assert_eq!(filesystem.written.borrow()[0], AK_REGISTERD);
+    }
+
+    #[test]
+    fn test_attestation_key_handle_generation_fails() {
+        let generator = MockAttestationKeyGenerator {
+            response: Err(anyhow!("Failed to generate attestation key")),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Ok(()),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            panic!("HTTP client should not be called when key generation fails");
+        };
+
+        let attestation_key = Some(AttestationKey {
+            registration: Registration {
+                url: "http://test.example.com/register".to_string(),
+                cert: String::new(),
+                uuid: "test-uuid-123".to_string(),
+            },
+        });
+
+        let result = attestation_key_handle_with_deps(
+            &attestation_key,
+            &generator,
+            http_client_factory,
+            &filesystem,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err().to_string(),
+            "Failed to generate attestation key"
+        );
+        assert!(filesystem.written.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_attestation_key_handle_http_client_error() {
+        let generator = MockAttestationKeyGenerator {
+            response: Ok("mock_attestation_key".to_string()),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Ok(()),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = move |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            Ok(Box::new(MockHttpClient {
+                responses: vec![
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                    Err(anyhow!("Network error")),
+                ],
+                call_count: std::cell::RefCell::new(0),
+            }))
+        };
+
+        let attestation_key = Some(AttestationKey {
+            registration: Registration {
+                url: "http://test.example.com/register".to_string(),
+                cert: String::new(),
+                uuid: "test-uuid-123".to_string(),
+            },
+        });
+
+        let result = attestation_key_handle_with_deps(
+            &attestation_key,
+            &generator,
+            http_client_factory,
+            &filesystem,
+        );
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Network error"));
+        assert!(filesystem.written.borrow().is_empty());
+    }
+
+    #[test]
+    fn test_attestation_key_handle_filesystem_write_fails() {
+        let generator = MockAttestationKeyGenerator {
+            response: Ok("mock_attestation_key".to_string()),
+        };
+        let filesystem = MockFileSystem {
+            write_result: Err(anyhow!("Permission denied")),
+            written: std::cell::RefCell::new(Vec::new()),
+        };
+        let http_client_factory = move |_cert: &str| -> Result<Box<dyn HttpClient>> {
+            Ok(Box::new(MockHttpClient {
+                responses: vec![Ok(200)],
+                call_count: std::cell::RefCell::new(0),
+            }))
+        };
+
+        let attestation_key = Some(AttestationKey {
+            registration: Registration {
+                url: "http://test.example.com/register".to_string(),
+                cert: String::new(),
+                uuid: "test-uuid-123".to_string(),
+            },
+        });
+
+        let result = attestation_key_handle_with_deps(
+            &attestation_key,
+            &generator,
+            http_client_factory,
+            &filesystem,
+        );
+
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().to_string(), "Permission denied");
+    }
 }
